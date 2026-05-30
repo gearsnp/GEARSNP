@@ -47,15 +47,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Payment proof is required" }, { status: 400 });
     }
 
-    // Check capacity
+    // Check capacity (sum quantities, not rows)
     if (event.ticket_capacity) {
-      const { count } = await supabaseAdmin
+      const { data: bookedData } = await supabaseAdmin
         .from("ticket_bookings")
-        .select("id", { count: "exact", head: true })
+        .select("quantity")
         .eq("event_id", event_id)
         .neq("payment_status", "rejected");
 
-      const booked = count ?? 0;
+      const booked = bookedData?.reduce((sum, b) => sum + (b.quantity ?? 0), 0) ?? 0;
       if (booked + quantity > event.ticket_capacity) {
         return NextResponse.json({ error: "Not enough tickets available" }, { status: 400 });
       }

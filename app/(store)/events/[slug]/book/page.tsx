@@ -32,13 +32,14 @@ export default async function BookTicketPage({
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { count } = await supabaseAdmin
+    const { data: bookedData } = await supabaseAdmin
       .from("ticket_bookings")
-      .select("id", { count: "exact", head: true })
+      .select("quantity")
       .eq("event_id", event.id)
       .neq("payment_status", "rejected");
 
-    remainingCapacity = event.ticket_capacity - (count ?? 0);
+    const booked = bookedData?.reduce((sum, b) => sum + (b.quantity ?? 0), 0) ?? 0;
+    remainingCapacity = event.ticket_capacity - booked;
     if (remainingCapacity <= 0) notFound();
   }
 
