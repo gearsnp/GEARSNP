@@ -16,6 +16,8 @@ import {
   X,
   LogOut,
   Tag,
+  Ticket,
+  ScanLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase/client";
@@ -63,6 +65,8 @@ export default function AdminLayout({
     { name: 'Deliveries', href: '/admin/deliveries', icon: Truck },
     { name: 'Promo Codes', href: '/admin/promo-codes', icon: Tag },
     { name: 'Events', href: '/admin/events', icon: Calendar },
+    { name: 'Ticket Bookings', href: '/admin/ticket-bookings', icon: Ticket },
+    { name: 'Ticket Scanner', href: '/admin/ticket-scanner', icon: ScanLine },
     { name: 'Settings', href: '/admin/settings', icon: Settings },
   ];
 

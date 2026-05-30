@@ -195,6 +195,11 @@ export interface Database {
           event_date: string;
           banner_image_url: string | null;
           is_active: boolean;
+          is_ticketed: boolean;
+          ticket_price: number | null;
+          ticket_capacity: number | null;
+          payment_instructions: string | null;
+          payment_qr_url: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -207,6 +212,11 @@ export interface Database {
           event_date: string;
           banner_image_url?: string | null;
           is_active?: boolean;
+          is_ticketed?: boolean;
+          ticket_price?: number | null;
+          ticket_capacity?: number | null;
+          payment_instructions?: string | null;
+          payment_qr_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -219,6 +229,93 @@ export interface Database {
           event_date?: string;
           banner_image_url?: string | null;
           is_active?: boolean;
+          is_ticketed?: boolean;
+          ticket_price?: number | null;
+          ticket_capacity?: number | null;
+          payment_instructions?: string | null;
+          payment_qr_url?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      ticket_qr_codes: {
+        Row: {
+          id: string;
+          booking_id: string;
+          qr_token: string;
+          ticket_index: number;
+          used_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          booking_id: string;
+          qr_token?: string;
+          ticket_index: number;
+          used_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          booking_id?: string;
+          qr_token?: string;
+          ticket_index?: number;
+          used_at?: string | null;
+          created_at?: string;
+        };
+      };
+      ticket_bookings: {
+        Row: {
+          id: string;
+          event_id: string;
+          booking_number: string;
+          customer_name: string;
+          customer_email: string;
+          customer_phone: string;
+          quantity: number;
+          unit_price: number;
+          total_amount: number;
+          payment_proof_url: string | null;
+          payment_status: 'pending' | 'approved' | 'rejected';
+          qr_token: string;
+          used_at: string | null;
+          admin_note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          event_id: string;
+          booking_number?: string;
+          customer_name: string;
+          customer_email: string;
+          customer_phone: string;
+          quantity?: number;
+          unit_price: number;
+          total_amount: number;
+          payment_proof_url?: string | null;
+          payment_status?: 'pending' | 'approved' | 'rejected';
+          qr_token?: string;
+          used_at?: string | null;
+          admin_note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          event_id?: string;
+          booking_number?: string;
+          customer_name?: string;
+          customer_email?: string;
+          customer_phone?: string;
+          quantity?: number;
+          unit_price?: number;
+          total_amount?: number;
+          payment_proof_url?: string | null;
+          payment_status?: 'pending' | 'approved' | 'rejected';
+          qr_token?: string;
+          used_at?: string | null;
+          admin_note?: string | null;
           created_at?: string;
           updated_at?: string;
         };

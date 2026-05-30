@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
+import { sendAdminOrderNotification } from '@/lib/email';
 
 // POST /api/checkout - Process checkout and create order
 export async function POST(request: Request) {
@@ -105,6 +106,28 @@ export async function POST(request: Request) {
       order_id: order.id,
       status: 'pending',
     });
+
+    // Notify admin (non-blocking)
+    sendAdminOrderNotification({
+      orderNumber: order.order_number,
+      customerName: customer_name,
+      customerPhone: customer_phone,
+      customerEmail: customer_email || null,
+      shippingAddress: shipping_address,
+      city,
+      items: orderItems.map((i: { product_name: string; quantity: number; unit_price: number; size?: string | null }) => ({
+        product_name: i.product_name,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
+        size: i.size,
+      })),
+      subtotal,
+      shippingFee: shipping_fee,
+      discountAmount: discount_amount,
+      total,
+      notes: notes || null,
+      createdAt: new Date().toLocaleString('en-NP'),
+    }).catch(console.error);
 
     return NextResponse.json(
       {

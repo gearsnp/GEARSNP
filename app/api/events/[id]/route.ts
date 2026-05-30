@@ -38,7 +38,12 @@ export async function PATCH(
     const location = formData.get("location") as string;
     const event_date = formData.get("event_date") as string;
     const is_active = formData.get("is_active") === "true";
+    const is_ticketed = formData.get("is_ticketed") === "true";
+    const ticket_price = formData.get("ticket_price") ? parseFloat(formData.get("ticket_price") as string) : null;
+    const ticket_capacity = formData.get("ticket_capacity") ? parseInt(formData.get("ticket_capacity") as string, 10) : null;
+    const payment_instructions = formData.get("payment_instructions") as string | null;
     const banner_image = formData.get("banner_image") as File | null;
+    const payment_qr = formData.get("payment_qr") as File | null;
 
     // Prepare update data
     const updateData: Record<string, unknown> = {
@@ -48,6 +53,10 @@ export async function PATCH(
       location,
       event_date,
       is_active,
+      is_ticketed,
+      ticket_price: is_ticketed ? ticket_price : null,
+      ticket_capacity: is_ticketed ? ticket_capacity : null,
+      payment_instructions: is_ticketed ? payment_instructions : null,
       updated_at: new Date().toISOString(),
     };
 
@@ -71,6 +80,18 @@ export async function PATCH(
       } = supabase.storage.from("event-banners").getPublicUrl(filePath);
 
       updateData.banner_image_url = publicUrl;
+    }
+
+    // Handle payment QR upload if provided
+    if (is_ticketed && payment_qr && payment_qr.size > 0) {
+      const fileExt = payment_qr.name.split(".").pop();
+      const fileName = `qr-${slug}-${Date.now()}.${fileExt}`;
+      const { error: qrUploadError } = await supabase.storage
+        .from("event-banners")
+        .upload(fileName, payment_qr, { cacheControl: "3600", upsert: true });
+      if (qrUploadError) throw qrUploadError;
+      const { data: { publicUrl } } = supabase.storage.from("event-banners").getPublicUrl(fileName);
+      updateData.payment_qr_url = publicUrl;
     }
 
     // Update event

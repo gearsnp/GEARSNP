@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Store, Flag, ShoppingCart } from "lucide-react";
+import { Home, Store, Calendar, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +30,7 @@ export function MobileNav() {
   const navItems = [
     { href: "/", icon: Home, label: "Home" },
     { href: "/shop", icon: Store, label: "Shop" },
-    { href: "/teams", icon: Flag, label: "Teams" },
+    { href: "/events", icon: Calendar, label: "Events" },
     { href: "/cart", icon: ShoppingCart, label: "Cart", badge: cartCount },
   ];
 
