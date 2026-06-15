@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { supabaseServer } from "@/lib/supabase/server";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const formula1 = localFont({
@@ -101,6 +102,7 @@ export default async function RootLayout({
       >
         {children}
         <Toaster position="top-right" />
+        <Analytics />
       </body>
     </html>
   );
