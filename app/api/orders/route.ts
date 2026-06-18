@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { sendOrderConfirmationEmail } from '@/lib/email';
 import { createClient } from "@supabase/supabase-js";
+import { DELIVERY_RATES } from "@/lib/delivery-rates";
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Helper to get admin client (created on demand)
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -25,7 +25,6 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is admin
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
@@ -36,7 +35,6 @@ export async function GET() {
       .from('orders')
       .select('*, order_items(*), deliveries(*)');
 
-    // Non-admin users can only see their own orders
     if (!profile || (profile.role !== 'admin' && profile.role !== 'staff')) {
       query = query.eq('user_id', user.id);
     }
@@ -69,17 +67,10 @@ export async function POST(request: Request) {
       landmark,
       order_note,
       items,
-      subtotal,
-      delivery_charge,
-      total,
       promo_code,
-      promo_discount,
-      gaaubesi_order_id,
-      sent_to_delivery_at,
-      status,
     } = body;
 
-    // Validation
+    // Validate required fields
     if (!customer_name || !customer_phone || !city || !address || !items || items.length === 0) {
       return NextResponse.json(
         { error: "Missing required fields" },
@@ -87,14 +78,127 @@ export async function POST(request: Request) {
       );
     }
 
-    // Build shipping address string
-    const shipping_address = landmark 
-      ? `${address}, ${landmark}, ${city}` 
-      : `${address}, ${city}`;
+    // Validate items structure — only accept productId, quantity, size, color from client
+    const itemInputs: { productId: string; quantity: number; size?: string; color?: string }[] = [];
+    for (const item of items) {
+      if (!item.productId || typeof item.quantity !== 'number' || item.quantity < 1) {
+        return NextResponse.json({ error: "Invalid item in cart" }, { status: 400 });
+      }
+      itemInputs.push({
+        productId: item.productId,
+        quantity: Math.floor(item.quantity),
+        size: item.size || undefined,
+        color: item.color || undefined,
+      });
+    }
 
     const supabase = await supabaseServer();
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+    }
 
-    // Generate order number - simple sequential number starting from 1001
+    // Fetch authoritative product data from the database
+    const productIds = [...new Set(itemInputs.map(i => i.productId))];
+    const { data: products, error: productsError } = await supabaseAdmin
+      .from("products")
+      .select("id, name, base_price, free_delivery, has_sizes, is_active")
+      .in("id", productIds);
+
+    if (productsError || !products) {
+      return NextResponse.json({ error: "Failed to verify products" }, { status: 500 });
+    }
+
+    const productMap = new Map(products.map(p => [p.id, p]));
+
+    // Verify all products exist and are active
+    for (const input of itemInputs) {
+      const product = productMap.get(input.productId);
+      if (!product) {
+        return NextResponse.json({ error: `Product not found: ${input.productId}` }, { status: 400 });
+      }
+      if (!product.is_active) {
+        return NextResponse.json({ error: `Product is no longer available: ${product.name}` }, { status: 400 });
+      }
+    }
+
+    // Compute subtotal using server-side prices
+    let subtotal = 0;
+    const resolvedItems: {
+      productId: string;
+      name: string;
+      quantity: number;
+      unit_price: number;
+      size?: string;
+      color?: string;
+      image_url?: string;
+    }[] = [];
+
+    for (const input of itemInputs) {
+      const product = productMap.get(input.productId)!;
+      const unit_price = Number(product.base_price as number);
+      subtotal += unit_price * input.quantity;
+      resolvedItems.push({
+        productId: input.productId,
+        name: product.name as string,
+        quantity: input.quantity,
+        unit_price,
+        size: input.size,
+        color: input.color,
+        image_url: items.find((i: { productId: string }) => i.productId === input.productId)?.image_url || null,
+      });
+    }
+
+    // Compute delivery charge server-side from city rate
+    const allFreeDelivery = resolvedItems.every(
+      i => productMap.get(i.productId)?.free_delivery === true
+    );
+    let delivery_charge = 0;
+    if (!allFreeDelivery) {
+      const rate = DELIVERY_RATES.find(
+        r => r.city.toUpperCase() === String(city).toUpperCase()
+      );
+      delivery_charge = rate?.rate ?? 150;
+    }
+
+    // Validate and compute promo discount server-side
+    let promo_discount = 0;
+    let validated_promo_code: string | null = null;
+    if (promo_code && typeof promo_code === 'string' && promo_code.trim()) {
+      const { data: promo } = await supabaseAdmin
+        .from("promo_codes")
+        .select("*")
+        .ilike("code", promo_code.trim())
+        .single();
+
+      if (
+        promo &&
+        promo.is_active &&
+        (!promo.starts_at || new Date(promo.starts_at) <= new Date()) &&
+        (!promo.expires_at || new Date(promo.expires_at) >= new Date()) &&
+        (promo.usage_limit === null || promo.used_count < promo.usage_limit) &&
+        (!promo.min_order_amount || subtotal >= promo.min_order_amount)
+      ) {
+        if (promo.discount_type === "percentage") {
+          promo_discount = subtotal * (promo.discount_value / 100);
+          if (promo.max_discount_amount && promo_discount > promo.max_discount_amount) {
+            promo_discount = promo.max_discount_amount;
+          }
+        } else {
+          promo_discount = Math.min(promo.discount_value, subtotal);
+        }
+        promo_discount = Math.round(promo_discount * 100) / 100;
+        validated_promo_code = promo.code;
+      }
+    }
+
+    const total = subtotal - promo_discount + delivery_charge;
+
+    const shipping_address = landmark
+      ? `${address}, ${landmark}, ${city}`
+      : `${address}, ${city}`;
+
+    // Generate order number
     const { data: lastOrder } = await supabase
       .from("orders")
       .select("order_number")
@@ -103,16 +207,16 @@ export async function POST(request: Request) {
       .single();
 
     let orderNumber = "1001";
-    if (lastOrder && lastOrder.order_number) {
+    if (lastOrder?.order_number) {
       const lastNumber = parseInt(lastOrder.order_number);
       orderNumber = (lastNumber + 1).toString();
     }
 
-    // Create order
-    const orderNotes = promo_code 
-      ? `${order_note ? order_note + ' | ' : ''}Promo: ${promo_code}`
+    const orderNotes = validated_promo_code
+      ? `${order_note ? order_note + ' | ' : ''}Promo: ${validated_promo_code}`
       : order_note;
-      
+
+    // Create order with server-computed totals
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
@@ -124,13 +228,11 @@ export async function POST(request: Request) {
         shipping_address,
         notes: orderNotes,
         payment_status: 'unpaid',
-        status: status || 'pending',
+        status: 'pending',
         subtotal,
-        shipping_fee: delivery_charge || 0,
-        discount_amount: promo_discount || 0,
+        shipping_fee: delivery_charge,
+        discount_amount: promo_discount,
         total,
-        gaaubesi_order_id: gaaubesi_order_id || null,
-        sent_to_delivery_at: sent_to_delivery_at || null,
       })
       .select()
       .single();
@@ -143,15 +245,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create order items
-    const orderItems = items.map((item: any) => ({
+    // Create order items with server-fetched prices
+    const orderItems = resolvedItems.map(item => ({
       order_id: order.id,
       product_id: item.productId,
       product_name: item.name,
       size: item.size || null,
-      unit_price: item.price,
+      unit_price: item.unit_price,
       quantity: item.quantity,
-      total_price: item.price * item.quantity,
+      total_price: item.unit_price * item.quantity,
     }));
 
     const { error: itemsError } = await supabase
@@ -160,7 +262,6 @@ export async function POST(request: Request) {
 
     if (itemsError) {
       console.error("Order items creation error:", itemsError);
-      // Rollback: delete the order
       await supabase.from("orders").delete().eq("id", order.id);
       return NextResponse.json(
         { error: "Failed to create order items" },
@@ -169,17 +270,10 @@ export async function POST(request: Request) {
     }
 
     // Decrease stock for each item
-    for (const item of items) {
+    for (const item of resolvedItems) {
       try {
-        // Check if product has sizes
-        const { data: product } = await supabase
-          .from("products")
-          .select("has_sizes")
-          .eq("id", item.productId)
-          .single();
-
-        if (product?.has_sizes && item.size) {
-          // Decrease stock for specific size variant
+        const product = productMap.get(item.productId)!;
+        if (product.has_sizes && item.size) {
           const { data: variant } = await supabase
             .from("product_variants")
             .select("stock")
@@ -188,15 +282,13 @@ export async function POST(request: Request) {
             .single();
 
           if (variant) {
-            const newStock = Math.max(0, variant.stock - item.quantity);
             await supabase
               .from("product_variants")
-              .update({ stock: newStock })
+              .update({ stock: Math.max(0, variant.stock - item.quantity) })
               .eq("product_id", item.productId)
               .eq("size", item.size);
           }
         } else {
-          // Decrease stock for product without sizes
           const { data: productData } = await supabase
             .from("products")
             .select("stock")
@@ -204,45 +296,38 @@ export async function POST(request: Request) {
             .single();
 
           if (productData) {
-            const newStock = Math.max(0, productData.stock - item.quantity);
             await supabase
               .from("products")
-              .update({ stock: newStock })
+              .update({ stock: Math.max(0, productData.stock - item.quantity) })
               .eq("id", item.productId);
           }
         }
       } catch (stockError) {
         console.error(`Failed to update stock for product ${item.productId}:`, stockError);
-        // Continue with other items even if one fails
       }
     }
 
-    // Increment promo code usage if one was applied
-    if (promo_code && promo_discount > 0) {
+    // Increment promo code usage if one was validated
+    if (validated_promo_code && promo_discount > 0) {
       try {
-        const supabaseAdmin = getSupabaseAdmin();
-        if (supabaseAdmin) {
-          // Get current count and increment using admin client (bypasses RLS)
-          const { data: currentPromo } = await supabaseAdmin
+        const { data: currentPromo } = await supabaseAdmin
+          .from('promo_codes')
+          .select('used_count')
+          .ilike('code', validated_promo_code)
+          .single();
+
+        if (currentPromo) {
+          await supabaseAdmin
             .from('promo_codes')
-            .select('used_count')
-            .ilike('code', promo_code)
-            .single();
-          
-          if (currentPromo) {
-            await supabaseAdmin
-              .from('promo_codes')
-              .update({ used_count: currentPromo.used_count + 1 })
-              .ilike('code', promo_code);
-          }
+            .update({ used_count: currentPromo.used_count + 1 })
+            .ilike('code', validated_promo_code);
         }
       } catch (promoError) {
         console.error("Failed to increment promo code usage:", promoError);
-        // Don't fail the order creation for this
       }
     }
 
-    // Send order confirmation email if customer email is provided
+    // Send order confirmation email
     if (customer_email) {
       try {
         await sendOrderConfirmationEmail({
@@ -254,23 +339,21 @@ export async function POST(request: Request) {
           address,
           landmark,
           orderNote: order_note,
-          items: items.map((item: any) => ({
+          items: resolvedItems.map(item => ({
             name: item.name,
-            price: item.price,
+            price: item.unit_price,
             quantity: item.quantity,
             size: item.size || null,
             image_url: item.image_url || null,
           })),
           subtotal,
-          deliveryCharge: delivery_charge || 0,
-          discount: promo_discount || 0,
-          promoCode: promo_code || null,
+          deliveryCharge: delivery_charge,
+          discount: promo_discount,
+          promoCode: validated_promo_code,
           total,
           createdAt: order.created_at,
         });
-        console.log(`Order confirmation email sent to ${customer_email}`);
       } catch (emailError) {
-        // Log error but don't fail the order creation
         console.error("Failed to send order confirmation email:", emailError);
       }
     }

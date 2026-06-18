@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { sendAdminOrderNotification } from '@/lib/email';
+import { createClient } from "@supabase/supabase-js";
 
 // POST /api/checkout - Process checkout and create order
 export async function POST(request: Request) {
@@ -19,7 +20,6 @@ export async function POST(request: Request) {
       notes,
     } = body;
 
-    // Validate required fields
     if (!items || items.length === 0) {
       return NextResponse.json(
         { error: 'Cart is empty' },
@@ -34,20 +34,44 @@ export async function POST(request: Request) {
       );
     }
 
-    // Calculate totals
-    let subtotal = 0;
-    for (const item of items) {
-      subtotal += item.unit_price * item.quantity;
+    // Fetch authoritative prices from the database
+    const productIds = [...new Set(items.map((i: { product_id: string }) => i.product_id))];
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data: products, error: productsError } = await supabaseAdmin
+      .from("products")
+      .select("id, name, base_price, is_active")
+      .in("id", productIds);
+
+    if (productsError || !products) {
+      return NextResponse.json({ error: "Failed to verify products" }, { status: 500 });
     }
 
-    const shipping_fee = subtotal >= 5000 ? 0 : 150; // Free shipping over NPR 5000
-    const discount_amount = 0; // Apply discounts here
+    const productMap = new Map(products.map(p => [p.id, p]));
+
+    // Compute subtotal using server-side prices
+    let subtotal = 0;
+    const resolvedItems = [];
+    for (const item of items) {
+      const product = productMap.get(item.product_id);
+      if (!product || !product.is_active) {
+        return NextResponse.json({ error: `Product not found: ${item.product_id}` }, { status: 400 });
+      }
+      const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+      const unit_price = Number(product.base_price);
+      subtotal += unit_price * qty;
+      resolvedItems.push({ ...item, product_name: product.name, unit_price, quantity: qty });
+    }
+
+    const shipping_fee = subtotal >= 5000 ? 0 : 150;
+    const discount_amount = 0;
     const total = subtotal + shipping_fee - discount_amount;
 
-    // Get user if authenticated
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Create order
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
@@ -76,8 +100,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create order items
-    const orderItems = items.map((item: { product_id: string; product_name: string; quantity: number; unit_price: number; size?: string; color?: string }) => ({
+    const orderItems = resolvedItems.map(item => ({
       order_id: order.id,
       product_id: item.product_id,
       product_name: item.product_name,
@@ -93,7 +116,6 @@ export async function POST(request: Request) {
       .insert(orderItems);
 
     if (itemsError) {
-      // Rollback order if items fail
       await supabase.from('orders').delete().eq('id', order.id);
       return NextResponse.json(
         { error: 'Failed to create order items' },
@@ -101,13 +123,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create delivery record
     await supabase.from('deliveries').insert({
       order_id: order.id,
       status: 'pending',
     });
 
-    // Notify admin (non-blocking)
     sendAdminOrderNotification({
       orderNumber: order.order_number,
       customerName: customer_name,
@@ -115,7 +135,7 @@ export async function POST(request: Request) {
       customerEmail: customer_email || null,
       shippingAddress: shipping_address,
       city,
-      items: orderItems.map((i: { product_name: string; quantity: number; unit_price: number; size?: string | null }) => ({
+      items: orderItems.map(i => ({
         product_name: i.product_name,
         quantity: i.quantity,
         unit_price: i.unit_price,
