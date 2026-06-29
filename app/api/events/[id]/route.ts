@@ -42,6 +42,8 @@ export async function PATCH(
     const ticket_price = formData.get("ticket_price") ? parseFloat(formData.get("ticket_price") as string) : null;
     const ticket_capacity = formData.get("ticket_capacity") ? parseInt(formData.get("ticket_capacity") as string, 10) : null;
     const payment_instructions = formData.get("payment_instructions") as string | null;
+    const ticket_promo_enabled = formData.get("ticket_promo_enabled") === "true";
+    const ticket_promo_discount = formData.get("ticket_promo_discount") ? parseFloat(formData.get("ticket_promo_discount") as string) : 100;
     const banner_image = formData.get("banner_image") as File | null;
     const payment_qr = formData.get("payment_qr") as File | null;
 
@@ -57,6 +59,8 @@ export async function PATCH(
       ticket_price: is_ticketed ? ticket_price : null,
       ticket_capacity: is_ticketed ? ticket_capacity : null,
       payment_instructions: is_ticketed ? payment_instructions : null,
+      ticket_promo_enabled: is_ticketed ? ticket_promo_enabled : false,
+      ticket_promo_discount: is_ticketed ? ticket_promo_discount : 100,
       updated_at: new Date().toISOString(),
     };
 

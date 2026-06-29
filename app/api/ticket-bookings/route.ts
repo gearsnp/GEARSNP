@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     // Fetch the event
     const { data: event, error: eventError } = await supabaseAdmin
       .from("events")
-      .select("id, title, ticket_price, ticket_capacity, is_ticketed, is_active")
+      .select("id, title, ticket_price, ticket_capacity, is_ticketed, is_active, ticket_promo_enabled, ticket_promo_discount")
       .eq("id", event_id)
       .single();
 
@@ -148,6 +148,29 @@ export async function POST(request: NextRequest) {
 
         const { sendTicketConfirmationEmail } = await import("@/lib/email");
 
+        // Generate one promo code per ticket (if enabled for this event)
+        let promoCodes: { code: string }[] | null = null;
+        if (event.ticket_promo_enabled) {
+          const expiry = new Date();
+          expiry.setDate(expiry.getDate() + 30);
+          const discountValue = Number(event.ticket_promo_discount ?? 100);
+          const promoInserts = Array.from({ length: quantity }, () => ({
+            code: "TKT-" + Math.random().toString(36).substring(2, 8).toUpperCase(),
+            description: `Ticket perk — ${event.title}`,
+            discount_type: "fixed",
+            discount_value: discountValue,
+            usage_limit: 1,
+            used_count: 0,
+            is_active: true,
+            expires_at: expiry.toISOString(),
+          }));
+          const { data } = await supabaseAdmin
+            .from("promo_codes")
+            .insert(promoInserts)
+            .select("code");
+          promoCodes = data;
+        }
+
         // Upload all QR images in parallel, then send ONE email with all tickets
         const ticketEntries = await Promise.all((qrCodes ?? []).map(async (qr) => {
           const buf: Buffer = await QRCode.toBuffer(qr.qr_token, { width: 400, margin: 2 });
@@ -156,7 +179,11 @@ export async function POST(request: NextRequest) {
             .upload(fileName, buf, { contentType: "image/png", upsert: true });
           const { data: { publicUrl: qrCodeUrl } } = supabaseAdmin.storage
             .from("ticket-qr-codes").getPublicUrl(fileName);
-          return { ticketIndex: qr.ticket_index, qrCodeUrl };
+          return {
+            ticketIndex: qr.ticket_index,
+            qrCodeUrl,
+            promoCode: promoCodes?.[qr.ticket_index - 1]?.code,
+          };
         }));
 
         await sendTicketConfirmationEmail({

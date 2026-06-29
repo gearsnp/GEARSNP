@@ -30,7 +30,7 @@ export async function PATCH(
       // Fetch booking + event details
       const { data: booking, error: fetchError } = await supabaseAdmin
         .from("ticket_bookings")
-        .select("*, events(title, event_date, location)")
+        .select("*, events(title, event_date, location, ticket_promo_enabled, ticket_promo_discount)")
         .eq("id", id)
         .single();
 
@@ -55,7 +55,7 @@ export async function PATCH(
       // Create one QR code per ticket, upload each, send individual emails
       try {
         const QRCode = (await import("qrcode")).default;
-        const event = booking.events as { title: string; event_date: string; location: string | null };
+        const event = booking.events as { title: string; event_date: string; location: string | null; ticket_promo_enabled: boolean; ticket_promo_discount: number };
         const eventDate = new Date(event.event_date).toLocaleDateString("en-NP", {
           weekday: "long", year: "numeric", month: "long", day: "numeric",
           hour: "2-digit", minute: "2-digit",
@@ -102,6 +102,29 @@ export async function PATCH(
             logoUrl: settings?.logo_url ?? null,
           });
         } else {
+          // Generate one promo code per ticket (if enabled for this event)
+          let promoCodes: { code: string }[] | null = null;
+          if (event.ticket_promo_enabled) {
+            const expiry = new Date();
+            expiry.setDate(expiry.getDate() + 30);
+            const discountValue = Number(event.ticket_promo_discount ?? 100);
+            const promoInserts = Array.from({ length: booking.quantity }, () => ({
+              code: "TKT-" + Math.random().toString(36).substring(2, 8).toUpperCase(),
+              description: `Ticket perk — ${event.title}`,
+              discount_type: "fixed",
+              discount_value: discountValue,
+              usage_limit: 1,
+              used_count: 0,
+              is_active: true,
+              expires_at: expiry.toISOString(),
+            }));
+            const { data } = await supabaseAdmin
+              .from("promo_codes")
+              .insert(promoInserts)
+              .select("code");
+            promoCodes = data;
+          }
+
           // Upload all QR images in parallel, then send ONE email with all tickets
           const ticketEntries = await Promise.all(qrCodes.map(async (qr) => {
             const buf: Buffer = await QRCode.toBuffer(qr.qr_token, { width: 400, margin: 2 });
@@ -110,7 +133,11 @@ export async function PATCH(
               .upload(fileName, buf, { contentType: "image/png", upsert: true });
             const { data: { publicUrl: qrCodeUrl } } = supabaseAdmin.storage
               .from("ticket-qr-codes").getPublicUrl(fileName);
-            return { ticketIndex: qr.ticket_index, qrCodeUrl };
+            return {
+              ticketIndex: qr.ticket_index,
+              qrCodeUrl,
+              promoCode: promoCodes?.[qr.ticket_index - 1]?.code,
+            };
           }));
 
           await sendTicketConfirmationEmail({

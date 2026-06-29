@@ -16,6 +16,7 @@ import {
 interface TicketEntry {
   ticketIndex: number;
   qrCodeUrl: string;
+  promoCode?: string;
 }
 
 interface TicketConfirmationEmailProps {
@@ -128,6 +129,13 @@ export default function TicketConfirmationEmail({
                   alt={`QR Code — Ticket ${ticket.ticketIndex}`}
                   style={qrImage}
                 />
+                {ticket.promoCode && (
+                  <Section style={promoBox}>
+                    <Text style={promoTitle}>🎁 Your Exclusive Discount</Text>
+                    <Text style={promoCodeText}>{ticket.promoCode}</Text>
+                    <Text style={promoNote}>NPR 100 off your next GearsNP order · Valid 30 days · Single use</Text>
+                  </Section>
+                )}
               </Section>
             ))}
 
@@ -246,6 +254,36 @@ const qrNote = {
   fontSize: "12px",
   color: "#888888",
   margin: "4px 0 0",
+};
+const promoBox = {
+  margin: "14px auto 0",
+  padding: "14px 20px",
+  backgroundColor: "#fff8e1",
+  border: "1.5px dashed #e10600",
+  borderRadius: "8px",
+  textAlign: "center" as const,
+  maxWidth: "260px",
+};
+const promoTitle = {
+  fontSize: "12px",
+  fontWeight: "700",
+  color: "#333333",
+  margin: "0 0 6px",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.05em",
+};
+const promoCodeText = {
+  fontSize: "22px",
+  fontWeight: "700",
+  color: "#e10600",
+  letterSpacing: "0.12em",
+  margin: "0 0 6px",
+  fontFamily: "monospace",
+};
+const promoNote = {
+  fontSize: "11px",
+  color: "#777777",
+  margin: "0",
 };
 const footer = {
   padding: "20px 24px",

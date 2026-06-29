@@ -42,6 +42,8 @@ const eventSchema = z.object({
   ticket_price: z.string().optional(),
   ticket_capacity: z.string().optional(),
   payment_instructions: z.string().optional(),
+  ticket_promo_enabled: z.boolean(),
+  ticket_promo_discount: z.string().optional(),
 });
 
 type EventFormValues = z.infer<typeof eventSchema>;
@@ -68,10 +70,13 @@ export function AddEventDialog() {
       ticket_price: undefined,
       ticket_capacity: undefined,
       payment_instructions: "",
+      ticket_promo_enabled: false,
+      ticket_promo_discount: "100",
     },
   });
 
   const isTicketed = form.watch("is_ticketed");
+  const promoEnabled = form.watch("ticket_promo_enabled");
 
   const handleBannerImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -109,6 +114,10 @@ export function AddEventDialog() {
         if (data.ticket_capacity) formData.append("ticket_capacity", data.ticket_capacity);
         if (data.payment_instructions) formData.append("payment_instructions", data.payment_instructions);
         if (qrImage) formData.append("payment_qr", qrImage);
+        formData.append("ticket_promo_enabled", String(data.ticket_promo_enabled));
+        if (data.ticket_promo_enabled && data.ticket_promo_discount) {
+          formData.append("ticket_promo_discount", data.ticket_promo_discount);
+        }
       }
       if (bannerImage) formData.append("banner_image", bannerImage);
 
@@ -360,6 +369,40 @@ export function AddEventDialog() {
                   </FormControl>
                   <FormDescription>Upload your eSewa / Khalti / bank QR — shown to customers during booking</FormDescription>
                 </FormItem>
+
+                <div className="border-t border-border pt-4 space-y-3">
+                  <FormField
+                    control={form.control}
+                    name="ticket_promo_enabled"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between">
+                        <div>
+                          <FormLabel>Give promo code with each ticket</FormLabel>
+                          <FormDescription>Sends a discount code to each ticket holder after approval</FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} disabled={loading} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  {promoEnabled && (
+                    <FormField
+                      control={form.control}
+                      name="ticket_promo_discount"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Discount Amount (NPR)</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="number" min={1} step={1} placeholder="100" disabled={loading} />
+                          </FormControl>
+                          <FormDescription>Fixed NPR amount off their next order · valid 30 days · single use</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
               </div>
             )}
 

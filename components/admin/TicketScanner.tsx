@@ -56,7 +56,6 @@ interface TicketScannerProps {
 export default function TicketScanner({ events }: TicketScannerProps) {
   const [state, setState] = useState<ScanState>("idle");
   const [result, setResult] = useState<VerifyResult | null>(null);
-  const [checkingIn, setCheckingIn] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string>("");
   const [checklist, setChecklist] = useState<ChecklistData | null>(null);
   const [checklistLoading, setChecklistLoading] = useState(false);
@@ -110,41 +109,40 @@ export default function TicketScanner({ events }: TicketScannerProps) {
         scannedRef.current = true;
         await stopScanner();
         setState("loading");
-        const res = await fetch(`/api/ticket-bookings/verify?token=${encodeURIComponent(decodedText.trim())}`);
-        const data: VerifyResult = await res.json();
+
+        // Verify ticket
+        const verifyRes = await fetch(`/api/ticket-bookings/verify?token=${encodeURIComponent(decodedText.trim())}`);
+        const data: VerifyResult = await verifyRes.json();
+
+        // Auto check-in if valid and not already used
+        if (data.valid && !data.already_used) {
+          try {
+            const url = data.qr_code_id
+              ? `/api/ticket-qr-codes/${data.qr_code_id}`
+              : `/api/ticket-bookings/${data.legacy_booking_id}`;
+            const body = data.qr_code_id ? undefined : JSON.stringify({ action: "mark_used" });
+            const headers = data.qr_code_id ? undefined : { "Content-Type": "application/json" };
+            const checkInRes = await fetch(url, { method: "PATCH", body, headers });
+            if (checkInRes.ok) {
+              data.already_used = true;
+              data.used_at = new Date().toISOString();
+              toast.success("Checked in!");
+            } else {
+              const err = await checkInRes.json();
+              toast.error(err.error || "Check-in failed");
+            }
+          } catch {
+            toast.error("Check-in failed");
+          }
+        }
+
         setResult(data);
         setState("result");
+        if (selectedEventId) fetchChecklist(selectedEventId);
       },
       () => {}
     );
   }, [stopScanner]);
-
-  const handleCheckIn = async () => {
-    if (!result) return;
-    setCheckingIn(true);
-    try {
-      let url: string;
-      if (result.qr_code_id) {
-        url = `/api/ticket-qr-codes/${result.qr_code_id}`;
-      } else {
-        url = `/api/ticket-bookings/${result.legacy_booking_id}`;
-      }
-
-      const body = result.qr_code_id ? undefined : JSON.stringify({ action: "mark_used" });
-      const headers = result.qr_code_id ? undefined : { "Content-Type": "application/json" };
-      const res = await fetch(url, { method: "PATCH", body, headers });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Check-in failed");
-
-      toast.success("Checked in successfully!");
-      setResult((prev) => prev ? { ...prev, already_used: true, used_at: new Date().toISOString() } : prev);
-      if (selectedEventId) fetchChecklist(selectedEventId);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Check-in failed");
-    } finally {
-      setCheckingIn(false);
-    }
-  };
 
   useEffect(() => { return () => { stopScanner(); }; }, [stopScanner]);
 
@@ -241,11 +239,6 @@ export default function TicketScanner({ events }: TicketScannerProps) {
           )}
 
           <div className="flex gap-3">
-            {result.valid && !result.already_used && (
-              <Button onClick={handleCheckIn} disabled={checkingIn} className="flex-1 bg-green-600 hover:bg-green-700">
-                {checkingIn ? "Checking in..." : "Check In"}
-              </Button>
-            )}
             <Button variant="outline" onClick={() => startScanner()} className="flex-1">
               <RefreshCw className="h-4 w-4 mr-1.5" /> Scan Next
             </Button>
