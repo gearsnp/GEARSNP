@@ -109,7 +109,7 @@ interface SendTicketConfirmationEmailParams {
   quantity: number;
   unitPrice: number;
   totalAmount: number;
-  tickets: { ticketIndex: number; qrCodeUrl: string; promoCode?: string }[];
+  tickets: { ticketIndex: number; qrCodeUrl: string; promoCode?: string; promoDiscount?: number }[];
   logoUrl?: string | null;
 }
 

@@ -17,6 +17,7 @@ interface TicketEntry {
   ticketIndex: number;
   qrCodeUrl: string;
   promoCode?: string;
+  promoDiscount?: number;
 }
 
 interface TicketConfirmationEmailProps {
@@ -133,7 +134,7 @@ export default function TicketConfirmationEmail({
                   <Section style={promoBox}>
                     <Text style={promoTitle}>🎁 Your Exclusive Discount</Text>
                     <Text style={promoCodeText}>{ticket.promoCode}</Text>
-                    <Text style={promoNote}>NPR 100 off your next GearsNP order · Valid 30 days · Single use</Text>
+                    <Text style={promoNote}>NPR {ticket.promoDiscount ?? 100} off your next GearsNP order · Valid 30 days · Single use</Text>
                   </Section>
                 )}
               </Section>

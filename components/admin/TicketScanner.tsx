@@ -12,6 +12,7 @@ type ScanState = "idle" | "scanning" | "loading" | "result";
 type VerifyResult = {
   valid: boolean;
   already_used?: boolean;
+  just_checked_in?: boolean;
   used_at?: string;
   error?: string;
   payment_status?: string;
@@ -125,6 +126,7 @@ export default function TicketScanner({ events }: TicketScannerProps) {
             const checkInRes = await fetch(url, { method: "PATCH", body, headers });
             if (checkInRes.ok) {
               data.already_used = true;
+              data.just_checked_in = true;
               data.used_at = new Date().toISOString();
               toast.success("Checked in!");
             } else {
@@ -145,6 +147,14 @@ export default function TicketScanner({ events }: TicketScannerProps) {
   }, [stopScanner]);
 
   useEffect(() => { return () => { stopScanner(); }; }, [stopScanner]);
+
+  // Auto-restart scanner 1.5s after a successful check-in
+  useEffect(() => {
+    if (state === "result" && result?.just_checked_in) {
+      const timer = setTimeout(() => startScanner(), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [state, result, startScanner]);
 
   return (
     <div className="space-y-6 max-w-xl mx-auto">
@@ -194,16 +204,18 @@ export default function TicketScanner({ events }: TicketScannerProps) {
         <div className="space-y-3">
           <div className={`rounded-xl p-4 border-2 ${
             !result.valid ? "bg-red-50 border-red-200" :
+            result.just_checked_in ? "bg-green-50 border-green-300" :
             result.already_used ? "bg-amber-50 border-amber-300" :
             "bg-green-50 border-green-300"
           }`}>
             <div className="flex items-center gap-3">
               {!result.valid ? <XCircle className="h-7 w-7 text-red-500 shrink-0" /> :
+               result.just_checked_in ? <CheckCircle className="h-7 w-7 text-green-600 shrink-0" /> :
                result.already_used ? <AlertTriangle className="h-7 w-7 text-amber-500 shrink-0" /> :
                <CheckCircle className="h-7 w-7 text-green-600 shrink-0" />}
               <div>
-                <p className={`font-bold text-lg ${!result.valid ? "text-red-700" : result.already_used ? "text-amber-700" : "text-green-700"}`}>
-                  {!result.valid ? "Invalid Ticket" : result.already_used ? "Already Checked In" : "Valid Ticket"}
+                <p className={`font-bold text-lg ${!result.valid ? "text-red-700" : result.just_checked_in ? "text-green-700" : result.already_used ? "text-amber-700" : "text-green-700"}`}>
+                  {!result.valid ? "Invalid Ticket" : result.just_checked_in ? "Checked In!" : result.already_used ? "Already Checked In" : "Valid Ticket"}
                 </p>
                 {result.ticket_index && result.total_tickets && (
                   <p className="text-sm font-medium text-gray-600">

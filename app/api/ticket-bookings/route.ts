@@ -183,6 +183,7 @@ export async function POST(request: NextRequest) {
             ticketIndex: qr.ticket_index,
             qrCodeUrl,
             promoCode: promoCodes?.[qr.ticket_index - 1]?.code,
+            promoDiscount: promoCodes ? Number(event.ticket_promo_discount ?? 100) : undefined,
           };
         }));
 
